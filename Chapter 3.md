@@ -1,4 +1,4 @@
-# Admin Backend
+# Chapter 3: Admin Backend
 
 ## Lecture: Introduction to Chapter 3
 - Hello and welcome to Chapter 3 of the M220 Developer Course.
