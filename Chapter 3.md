@@ -1,0 +1,90 @@
+# Admin Backend
+
+## Lecture: Introduction to Chapter 3
+- Hello and welcome to Chapter 3 of the M220 Developer Course.
+- I hope you were successfully able to build the user-facing back end of the MFlix application. Now we can move on to the admin back end.
+- In this chapter, we'll learn how to use different read concerns, join collections using expressive $lookup, perform bulk operations, and clean data.
+- With that you'll be able to expand the functionality of your MFlix site.
+- This will include reporting on a movie's popularity and listing all reviews.
+- This is going to be a great chapter, so good luck and have fun.
+
+## Lecture: Read Concerns
+- In this lesson, we're going to discuss read concerns in MongoDB.
+- So read concerns are similar write concerns, in that they both involve how many nodes have applied a database operation.
+- While write concerns affect the acknowledgment received by the driver after a write, read concerns affect the data returned by a read operation.
+- Different read concerns are referred to as different levels of **read isolation** because you can essentially isolate a read from the rest of the database if the data being read has only been written to one of the nodes in the set.
+- If data can be read by clients before that data has been replicated to a majority of nodes, it's considered a low level of read isolation.
+- The read concern you choose will depend on how consistent your view of the database needs to be.
+- So by default, when an application sends a read to Mongo, Mongo will use Read Concern "local".
+- From the perspective of the database client, the data read using Read Concern Local has only been written to the primary node.
+- In the vast majority of cases, the data will also have been written to the secondary nodes in the set.
+- But the client only has proof that this one note applied the write.
+- This means that there's a chance, however slim, that the data returned by this read will be rolled back.
+- This would happen if sometime after this data is returned, the primary goes down and the secondaries haven't replicated the data yet.
+- That means that when one of these two nodes becomes the primary, this primary will be secondary.
+- And it'll be rolled back to match the state of whichever node became the new primary.
+- So the default read concern MongoDB is Local, which reads whatever copy of the data exists on the primary node, regardless of whether or not the other nodes have replicated that data.
+- And for the vast majority of reads, Read Concern Local is just fine.
+- But we might want a higher level of consistency on some of our reads, which we can achieve with a read concern called "majority".
+- When a database client sends a read to Mongo with Read Concern Majority, it can verifiably claim that the data it gets back has been replicated to a majority of nodes in the set.
+- The benefit of this read concern level is that once data has been replicated to majority of nodes, it's very durable in the event of a failure.
+- Even if the current primary fails, this secondary can be elected primary, and then the data will get rolled back.
+- One thing to note here, if these secondaries aren't done replicating data at the time that this primary receives the read, then whenever the copy of the data has been copied to a majority of nodes, will be returned to the client.
+- This means that if the value of age field in primary is 66 but the secondaries still think that I'm 65, the age returned to the client will be 65 because in a three-node replica set, two members are required to constitute a majority.
+- So clearly, Read Concern Majority might return slightly stale data, but provides a higher level of read isolation.
+- So you can be more confident the data you received won't get rolled back.
+- For this reason, it's most useful in reading mission-critical data, because lower levels of read isolation have slightly higher chance of being rolled back in an emergency.
+- If your application's core functionality depends on one read, like checking a user's account balance, then you probably want that read to have a higher durability.
+- So just to recap:
+    - Issuing a read with Read Concern Local will return whatever copy of the data exists on the primary node in the set.
+    - Issuing a read with Read Concern Majority will return whatever copy of data has been replicated to a majority of nodes in the set.
+
+## Lecture: Bulk Writes
+- So in this lesson we're going to discuss bulk writes, which is a different kind of write in MongoDB, and we're going to talk about the performance application of these kinds of writes.
+- So oftentimes our applications will encounter situations in which they need to perform a series of writes at once. And in some cases, these writes have a causal effect on one another.
+- One of them failing or succeeding may affect the application logic.
+- So in this case, a customer is on our supermarket application and they're purchasing items from the store. We want to update the database to reflect the new quantities of that food that we have in stock.
+- So they bought two apples, so we want to decrease the total quantity by two. They bought four sticks of butter, one slice of bread, et cetera.
+- When our application received these writes, one option it has is to send each of them to the database one at a time.
+- So it would send the first write, and then some time later, it will receive an acknowledgment back from the database. 
+- Nice. Now we'll see the next write over.
+- So we send the next write, wait for acknowledgment.
+- So we just performed two write operations, and it required two round trips to the database. We need to send the operation, and then receive an acknowledgment back from the database.
+- That's round trip to the database for each operation.
+- But if we already knew all the writes we wanted to perform, why is our client sending them each one at a time?
+- So you can probably see where this is going.
+- So what we can do instead is batch these writes together and then send them in bulk.
+- The exact method of grouping documents together is implemented differently in each driver, just because the data structures are different.
+- But the general idea is the same.
+- Package a bunch of writes into a batch, usually a list or an array-- but again, the implementation is different in every language-- and then send that whole batch to MongoDB and get one acknowledgment back from the server.
+- This is an implementation of bulk writes in the Mongo shell, and you can copy this from the handout if you want to try it out.
+- But this will look different and your chosen programming language, so just bear that in mind.
+- When a client sends a bulk write, it gets one acknowledgment back from the database for the whole batch. And this is a benefit to our application's performance because it limits the effect of latency on the overall speed of the operation.
+- If it takes one second for each round trip, then setting each write one at a time takes four total seconds.
+- But if we can send all four writes in one trip, then sending four writes only takes one second.
+- Now the default behavior of a bulk write in Mongo is an ordered execution of these writes.
+- In the order bulk write, any failure will stop the execution of the rest of the batch.
+- This benefits us in this case because these writes might be causally related, like if two different update operations want to buy sticks of butter but there's only one left.
+- In that situation, the first operation in the batch you get the last stick of butter, and the second operation should error out. That's why we need these executed in order.
+- The bulk rate would throw some sort of error on the update statement, and then return an acknowledgment back to the client before trying to purchase any more items.
+- The acknowledgment we get back would tell us if something errored out.
+- So bulk writes in MongoDB will be **ordered** by default.
+- That means that even though we sent all the writes at the same time, the replica set will apply them in the order that they were sent.
+- Sending an ordered bulk write implies that each write in the batch depends on all the writes that occurred before it.
+- So if a write operation results in error, all subsequent writes will not be executed, because Mongo assumes that those writes were expecting the ones before to succeed.
+- But there's a chance that the writes in our batch are not dependent on each other.
+- In this case, we've just received a shipment of food to the warehouse and we want to update the new food quantities in stock.
+- Because all these operations are additive, we don't need them to be executed in order.
+- So I passed this `{ ordered: false }` flag to the bulk write command which will execute them in parallel.
+- If some of them fail for whatever reason, we can still continue on with the execution of the other operations in the batch.
+- And when we get an acknowledgment back from the server, it'll let us know if any of the operations fail.
+- So if the writes in our batch don't have any sort of causal relationship, then the client can send them over in an unordered bulk write.
+- This will execute the write operations in parallel so the writes are non-blocking. And as a result, a single failure won't prevent any of the other writes from succeeding.
+- Now those writes might fail on their own, but their execution is not tied to the success of any of the other writes.
+- So in conclusion:
+    - Bulk writes make it more efficient to update or insert in many documents in a database by setting them all in batches.
+    - These bulk writes can be ordered, which means writes are executed in the order in which they were sent to the database and any errors will prevent subsequent writes from executing.
+    - They can also be unordered, which means the writes are executed in parallel, and errors don't affect the execution of other writes.
+    - Now one small thing to note. In a shorted collection, ordered bulk rates are expected to take a little longer because write operations need to be routed to the designated shards.
+    - And unordered bulk write might reach the mongos in one batch, but then it has to be serialized across each designated shard.
+    - Regardless of the designated shard, the write operation needs to be evaluated to see if we should continue or exit the execution of the rest of the batch.
